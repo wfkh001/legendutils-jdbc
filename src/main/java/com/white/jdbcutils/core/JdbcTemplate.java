@@ -1,18 +1,16 @@
 package com.white.jdbcutils.core;
 
+import com.google.gson.*;
+import com.white.jdbcutils.annotation.ToJson;
 import com.white.jdbcutils.utils.StringUtils;
 
 import javax.sql.DataSource;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.lang.reflect.*;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
 /**
  * @ClassName JdbcTemplate
@@ -27,6 +25,8 @@ public class JdbcTemplate implements JdbcOperations{
      * 数据源
      */
     private DataSource dataSource;
+
+    private Gson gson;
 
     /**
      * 获取连接
@@ -93,12 +93,103 @@ public class JdbcTemplate implements JdbcOperations{
             for (Field field : fields) {
                 //将实体类中的属性名转换成表的字段名
                 String lineName = StringUtils.humpToLine(field.getName());
-                //从resultSet结果集中获取指定字段名的值
-                Object object = resultSet.getObject(lineName, field.getType());
+                //实体类的某属性对象值
+                Object fieldTypeObj = null;
+                //判断是否为复杂类型
+                if (Objects.nonNull(field.getAnnotation(ToJson.class))){
+                    //从resultSet结果集中获取指定字段名的值
+                    String json = resultSet.getObject(lineName, String.class);
+                    if (json != null && json.length() != 0){
+                        //获取属性值
+                        if (List.class.equals(field.getType())){
+                            List resultList = new ArrayList();
+                            JsonArray arry = new JsonParser().parse(json).getAsJsonArray();
+                            Type genericType = field.getGenericType();
+                            Class<?> actualTypeArgument = null;
+                            if (genericType != null) {
+                                if (genericType instanceof ParameterizedType) {
+                                    ParameterizedType pt = (ParameterizedType) genericType;
+                                    // 得到泛型里的class类型对象
+                                    actualTypeArgument = (Class<?>)pt.getActualTypeArguments()[0];
+                                }
+                            }
+                            if (actualTypeArgument != null) {
+                                for (JsonElement jsonElement : arry) {
+                                    resultList.add(gson.fromJson(jsonElement, actualTypeArgument));
+                                }
+                                fieldTypeObj = resultList;
+                            }
+                        }else if (Set.class.equals(field.getType())){
+                            Set resultList = new HashSet();
+                            JsonArray arry = new JsonParser().parse(json).getAsJsonArray();
+                            Type genericType = field.getGenericType();
+                            Class<?> actualTypeArgument = null;
+                            if (genericType != null) {
+                                if (genericType instanceof ParameterizedType) {
+                                    ParameterizedType pt = (ParameterizedType) genericType;
+                                    // 得到泛型里的class类型对象
+                                    actualTypeArgument = (Class<?>)pt.getActualTypeArguments()[0];
+                                }
+                            }
+                            if (actualTypeArgument != null) {
+                                for (JsonElement jsonElement : arry) {
+                                    resultList.add(gson.fromJson(jsonElement, actualTypeArgument));
+                                }
+                                fieldTypeObj = resultList;
+                            }
+                        }else if (Map.class.equals(field.getType())) {
+                            Map resultMap = new HashMap();
+                            JsonObject jsonObject = new JsonParser().parse(json).getAsJsonObject();
+                            Type genericType = field.getGenericType();
+                            //泛型类型
+                            Class<?> actualTypeArgumentOne = null;
+                            Class<?> actualTypeArgumentTwe = null;
+                            if (genericType != null) {
+                                if (genericType instanceof ParameterizedType) {
+                                    ParameterizedType pt = (ParameterizedType) genericType;
+                                    // 得到泛型里的class类型对象
+                                    actualTypeArgumentOne = (Class<?>)pt.getActualTypeArguments()[0];
+                                    actualTypeArgumentTwe = (Class<?>)pt.getActualTypeArguments()[1];
+                                }
+                            }
+                            if (actualTypeArgumentOne != null && actualTypeArgumentTwe != null) {
+                                for (Map.Entry<String, JsonElement> entry : jsonObject.entrySet()) {
+                                    String key = entry.getKey();
+                                    JsonElement value = entry.getValue();
+                                    Object objKey = null;
+                                    //转换key
+                                    if (Integer.class.equals(actualTypeArgumentOne)) {
+                                        objKey = Integer.parseInt(key);
+                                    } else if (Long.class.equals(actualTypeArgumentOne)) {
+                                        objKey = Long.parseLong(key);
+                                    } else if (Byte.class.equals(actualTypeArgumentOne)) {
+                                        objKey = Byte.parseByte(key);
+                                    } else if (Short.class.equals(actualTypeArgumentOne)) {
+                                        objKey = Short.parseShort(key);
+                                    } else if (Float.class.equals(actualTypeArgumentOne)) {
+                                        objKey = Float.parseFloat(key);
+                                    } else if (Double.class.equals(actualTypeArgumentOne)) {
+                                        objKey = Double.parseDouble(key);
+                                    } else if (String.class.equals(actualTypeArgumentOne)) {
+                                        objKey = key;
+                                    } else if (Boolean.class.equals(actualTypeArgumentOne)) {
+                                        objKey = Boolean.parseBoolean(key);
+                                    }
+                                    resultMap.put(objKey,gson.fromJson(value, actualTypeArgumentTwe));
+                                }
+                                fieldTypeObj = resultMap;
+                            }
+                        }else {
+                            fieldTypeObj = gson.fromJson(json, field.getType());
+                        }
+                    }
+                }else {
+                    fieldTypeObj = resultSet.getObject(lineName, field.getType());
+                }
                 //获得实体类中属性名对于的set方法
                 Method method = cls.getMethod(StringUtils.attrToMethodName(field.getName()), field.getType());
                 //执行set方法属性装载成功
-                method.invoke(t,object);
+                method.invoke(t,fieldTypeObj);
             }
             list.add(t);
         }
@@ -276,6 +367,7 @@ public class JdbcTemplate implements JdbcOperations{
 
     public JdbcTemplate(DataSource dataSource) {
         this.dataSource = dataSource;
+        this.gson = new Gson();
     }
 
     public DataSource getDataSource() {

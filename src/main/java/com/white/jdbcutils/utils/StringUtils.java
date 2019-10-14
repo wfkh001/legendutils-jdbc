@@ -60,7 +60,7 @@ public class StringUtils {
      * @return
      */
     public static String attrToMethodName(String str){
-        str = str.substring(0,1).toUpperCase().concat(str.substring(1).toLowerCase());
+        str = str.substring(0,1).toUpperCase().concat(str.substring(1));
         return "set"+str;
     }
 
